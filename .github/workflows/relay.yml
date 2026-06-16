@@ -1,0 +1,58 @@
+name: Relay Mihomo Release → repository_dispatch
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # 每10分钟检查一次（GitHub 无法跨仓库直接监听）
+  workflow_dispatch:
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 获取最新 mihomo release
+        id: get_release
+        run: |
+          JSON=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases/latest)
+
+          TAG=$(echo "$JSON" | jq -r '.tag_name')
+          ID=$(echo "$JSON" | jq -r '.id')
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "id=$ID" >> $GITHUB_OUTPUT
+
+      - name: 检查是否已触发过
+        id: check
+        run: |
+          if [ -f last_id.txt ]; then
+            LAST_ID=$(cat last_id.txt)
+            if [ "$LAST_ID" = "${{ steps.get_release.outputs.id }}" ]; then
+              echo "skip=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          echo "skip=false" >> $GITHUB_OUTPUT
+
+      - name: 发送 repository_dispatch
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.REPO_TOKEN }}" \
+            https://api.github.com/repos/你的用户名/你的构建仓库/dispatches \
+            -d '{
+              "event_type": "mihomo_release",
+              "client_payload": {
+                "tag": "${{ steps.get_release.outputs.tag }}"
+              }
+            }'
+
+      - name: 记录最新 ID
+        if: steps.check.outputs.skip == 'false'
+        run: echo "${{ steps.get_release.outputs.id }}" > last_id.txt
+
+      - name: 缓存 ID
+        uses: actions/cache@v4
+        with:
+          path: last_id.txt
+          key: mihomo-last-id-${{ steps.get_release.outputs.id }}
