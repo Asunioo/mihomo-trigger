@@ -2,7 +2,7 @@ name: Relay Mihomo Release → repository_dispatch
 
 on:
   schedule:
-    - cron: '*/10 * * * *'   # 每10分钟检查一次（GitHub 无法跨仓库直接监听）
+    - cron: '*/10 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -10,6 +10,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: 安装 jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # ✅ 恢复缓存（关键修复）
+      - name: 恢复 last_id 缓存
+        uses: actions/cache@v4
+        with:
+          path: last_id.txt
+          key: mihomo-last-id-cache
+
       - name: 获取最新 mihomo release
         id: get_release
         run: |
@@ -17,6 +27,9 @@ jobs:
 
           TAG=$(echo "$JSON" | jq -r '.tag_name')
           ID=$(echo "$JSON" | jq -r '.id')
+
+          echo "当前最新 TAG: $TAG"
+          echo "当前最新 ID: $ID"
 
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "id=$ID" >> $GITHUB_OUTPUT
@@ -26,33 +39,39 @@ jobs:
         run: |
           if [ -f last_id.txt ]; then
             LAST_ID=$(cat last_id.txt)
+            echo "历史 ID: $LAST_ID"
+
             if [ "$LAST_ID" = "${{ steps.get_release.outputs.id }}" ]; then
               echo "skip=true" >> $GITHUB_OUTPUT
+              echo "无需触发"
               exit 0
             fi
           fi
+
           echo "skip=false" >> $GITHUB_OUTPUT
+          echo "检测到新版本，准备触发"
 
       - name: 发送 repository_dispatch
         if: steps.check.outputs.skip == 'false'
         run: |
+          TAG="${{ steps.get_release.outputs.tag }}"
+
           curl -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.REPO_TOKEN }}" \
             https://api.github.com/repos/Asunioo/hi3798mv100-mihomo/dispatches \
-            -d '{
-              "event_type": "mihomo_release",
-              "client_payload": {
-                "tag": "${{ steps.get_release.outputs.tag }}"
-              }
-            }'
+            -d "{\"event_type\":\"mihomo_release\",\"client_payload\":{\"tag\":\"$TAG\"}}"
 
-      - name: 记录最新 ID
+      - name: 保存最新 ID
         if: steps.check.outputs.skip == 'false'
-        run: echo "${{ steps.get_release.outputs.id }}" > last_id.txt
+        run: |
+          echo "${{ steps.get_release.outputs.id }}" > last_id.txt
+          echo "已更新 last_id"
 
-      - name: 缓存 ID
+      # ✅ 保存缓存（关键修复）
+      - name: 保存缓存
+        if: steps.check.outputs.skip == 'false'
         uses: actions/cache@v4
         with:
           path: last_id.txt
-          key: mihomo-last-id-${{ steps.get_release.outputs.id }}
+          key: mihomo-last-id-cache
