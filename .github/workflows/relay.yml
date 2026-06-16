@@ -39,7 +39,7 @@ jobs:
           curl -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.REPO_TOKEN }}" \
-            https://api.github.com/repos/你的用户名/你的构建仓库/dispatches \
+            https://api.github.com/repos/Asunioo/hi3798mv100-mihomo/dispatches \
             -d '{
               "event_type": "mihomo_release",
               "client_payload": {
